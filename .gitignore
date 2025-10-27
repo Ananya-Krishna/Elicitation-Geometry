@@ -1,3 +1,49 @@
+# Extraneous Scripts
+monitor_gpu.sh
+monitor_job.sh
+test_*.py
+
+# Old/Unused Data Curation Scripts
+data_curation_h200_16gpu.py
+data_curation_h200_batch.py
+data_curation_h200_parallel.py
+data_curation_h200_working.py
+data_curation_h200.py
+data_curation_optimized.py
+data_curation.py
+
+# Old/Unused SLURM Scripts
+run_batch_*.slurm
+run_data_collection.slurm
+run_h200_16gpu.slurm
+run_h200_8gpu.slurm
+run_h200_long.slurm
+run_h200_parallel.slurm
+run_h200.slurm
+run_optimized_4h.slurm
+run_optimized.slurm
+
+# Download/Setup Scripts (one-time use)
+download_llama_hub.py
+download_llama_models.py
+test_llama_auth.py
+run_elicitation.py
+
+# Data Directories (large files)
+elicitation_data/
+elicitation_data_*/
+model_cache/
+dataset_cache/
+test_cache/
+logs/
+
+# Generated Data Files
+*.h5
+*.json
+
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
