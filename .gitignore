@@ -39,7 +39,8 @@ data/logs/
 
 # Generated Data Files
 *.h5
-*.json
+# Only ignore large data JSON files, not pipeline config files
+elicitation_data*/prompts_split_*.json
 
 
 
