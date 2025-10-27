@@ -35,7 +35,7 @@ elicitation_data_*/
 model_cache/
 dataset_cache/
 test_cache/
-logs/
+data/logs/
 
 # Generated Data Files
 *.h5

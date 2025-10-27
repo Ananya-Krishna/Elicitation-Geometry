@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=parallel_llama2_aligned
-#SBATCH --output=logs/parallel_llama2_aligned_%j.out
-#SBATCH --error=logs/parallel_llama2_aligned_%j.err
+#SBATCH --job-name=parallel_falcon_aligned
+#SBATCH --output=data/logs/parallel_falcon_aligned_%j.out
+#SBATCH --error=data/logs/parallel_falcon_aligned_%j.err
 #SBATCH --time=04:00:00
 #SBATCH --partition=gpu_h200
 #SBATCH --gpus=h200:1
@@ -24,15 +24,15 @@ export TOKENIZERS_PARALLELISM=false
 export HF_TOKEN_FILE=/home/ark89/.cache/huggingface/token
 
 # Change to project directory
-cd /home/ark89/scratch_pi_ds256/ark89/Elicitation-Geometry
+cd /home/ark89/scratch_pi_ds256/ark89/Elicitation-Geometry/data
 
-# Run parallel data-split for llama2_aligned
-echo "Starting PARALLEL DATA-SPLIT for llama2_aligned..."
+# Run parallel data-split for falcon_aligned
+echo "Starting PARALLEL DATA-SPLIT for falcon_aligned..."
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_NODELIST"
 echo "GPU: H200 (NVIDIA H200)"
 echo "Time limit: 4 hours"
 
-~/.conda/envs/elicitation/bin/python data_curation_h200_parallel_data.py llama2_aligned 1 6
+~/.conda/envs/elicitation/bin/python data_curation_h200_parallel_data.py falcon_aligned 3 6
 
-echo "PARALLEL DATA-SPLIT for llama2_aligned completed!"
+echo "PARALLEL DATA-SPLIT for falcon_aligned completed!"

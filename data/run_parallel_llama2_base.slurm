@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=parallel_mistral_base
-#SBATCH --output=logs/parallel_mistral_base_%j.out
-#SBATCH --error=logs/parallel_mistral_base_%j.err
+#SBATCH --job-name=parallel_llama2_base
+#SBATCH --output=data/logs/parallel_llama2_base_%j.out
+#SBATCH --error=data/logs/parallel_llama2_base_%j.err
 #SBATCH --time=04:00:00
 #SBATCH --partition=gpu_h200
 #SBATCH --gpus=h200:1
@@ -24,15 +24,15 @@ export TOKENIZERS_PARALLELISM=false
 export HF_TOKEN_FILE=/home/ark89/.cache/huggingface/token
 
 # Change to project directory
-cd /home/ark89/scratch_pi_ds256/ark89/Elicitation-Geometry
+cd /home/ark89/scratch_pi_ds256/ark89/Elicitation-Geometry/data/data
 
-# Run parallel data-split for mistral_base
-echo "Starting PARALLEL DATA-SPLIT for mistral_base..."
+# Run parallel data-split for llama2_base
+echo "Starting PARALLEL DATA-SPLIT for llama2_base..."
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_NODELIST"
 echo "GPU: H200 (NVIDIA H200)"
 echo "Time limit: 4 hours"
 
-~/.conda/envs/elicitation/bin/python data_curation_h200_parallel_data.py mistral_base 4 6
+~/.conda/envs/elicitation/bin/python data_curation_h200_parallel_data.py llama2_base 0 6
 
-echo "PARALLEL DATA-SPLIT for mistral_base completed!"
+echo "PARALLEL DATA-SPLIT for llama2_base completed!"
