@@ -421,12 +421,13 @@ def main():
     print(f"Aligned shape: {aligned_encoded.shape}")
     
     hidden_dim = base_encoded.shape[1]
+    n_encoded = base_encoded.shape[0]
     
     # Load metadata (domains, variants, refusals)
     # We need to load this from original H5 files
     import h5py
     data_dir = Path(args.data_dir)
-    h5_files = sorted(data_dir.glob(f"{args.model_family}_aligned_split_*.h5"))
+    h5_files = sorted(data_dir.glob(f"**/{args.model_family}_aligned_split_*.h5"))
     
     all_domains = []
     all_variants = []
@@ -451,6 +452,38 @@ def main():
     
     print(f"Loaded {len(all_domains)} samples with metadata")
     print(f"Refusal rate: {refusals.mean():.1%}")
+    
+    # CRITICAL FIX: Subsample metadata to match encoded data
+    # The encoded data was subsampled (10%), so we need to subsample metadata the same way
+    if len(all_domains) != n_encoded:
+        subsample_ratio = n_encoded / len(all_domains)
+        print(f"\n⚠️  Metadata size ({len(all_domains)}) doesn't match encoded size ({n_encoded})")
+        print(f"   Subsampling metadata by {subsample_ratio:.1%} to match encoded data...")
+        
+        # Use same subsampling pattern as encoding (take first N samples proportionally from each file)
+        # Calculate how many samples per file
+        samples_per_file = []
+        for hf_file in h5_files:
+            with h5py.File(hf_file, 'r') as hf:
+                samples_per_file.append(len(hf["domains"]))
+        
+        # Subsample proportionally from each file (same as UltraFastActivationDataset)
+        indices = []
+        current_idx = 0
+        for n_samples in samples_per_file:
+            n_to_take = int(n_samples * subsample_ratio)
+            indices.extend(range(current_idx, current_idx + n_to_take))
+            current_idx += n_samples
+        
+        # Ensure we don't exceed the encoded size
+        indices = indices[:n_encoded]
+        
+        # Apply subsampling
+        all_domains = all_domains[indices]
+        all_variants = all_variants[indices]
+        refusals = refusals[indices]
+        
+        print(f"   ✓ Subsampled metadata to {len(all_domains)} samples (matches encoded data)")
     
     # Create dataset
     dataset = TensorDataset(

@@ -106,14 +106,18 @@ class SparseAutoencoder(nn.Module):
 # ============================================================================
 
 class ActivationDataset(Dataset):
-    """Load activations from your split H5 files for SAE training"""
+    """Load activations from your split H5 files for SAE training
+    
+    OPTIMIZED: Pre-loads all data into memory for fast training
+    """
     
     def __init__(self, 
                  data_dir: str,
                  model_name: str,  # e.g., "llama2_base"
                  layer_idx: int = -1,
                  pool_method: str = "mean",
-                 max_samples: int = None):
+                 max_samples: int = None,
+                 preload: bool = True):
         """
         Args:
             data_dir: Directory with split H5 files
@@ -121,25 +125,30 @@ class ActivationDataset(Dataset):
             layer_idx: Which layer to extract (-1 for last)
             pool_method: How to pool sequence dimension
             max_samples: Limit number of samples (for testing)
+            preload: If True, pre-load all data into memory (faster but uses more RAM)
         """
         self.data_dir = Path(data_dir)
         self.model_name = model_name
         self.layer_idx = layer_idx
         self.pool_method = pool_method
+        self.preload = preload
         
-        # Find all split files
-        split_files = sorted(self.data_dir.glob(f"{model_name}_split_*.h5"))
+        # Find all split files (search recursively in subdirectories)
+        split_files = sorted(self.data_dir.glob(f"**/{model_name}_split_*.h5"))
         
         if not split_files:
             raise ValueError(f"No split files found for {model_name} in {data_dir}")
         
         print(f"Found {len(split_files)} split files for {model_name}")
         
-        # Load all splits
-        self.h5_files = [h5py.File(f, 'r') for f in split_files]
+        self.split_files = split_files
         
         # Calculate sizes
-        self.split_sizes = [h5["hidden_states"].shape[0] for h5 in self.h5_files]
+        self.split_sizes = []
+        for f in split_files:
+            with h5py.File(f, 'r') as h5:
+                self.split_sizes.append(h5["hidden_states"].shape[0])
+        
         self.cumulative_sizes = np.cumsum([0] + self.split_sizes)
         self.total_size = self.cumulative_sizes[-1]
         
@@ -148,14 +157,40 @@ class ActivationDataset(Dataset):
             self.total_size = min(self.total_size, max_samples)
         
         print(f"Total samples: {self.total_size:,}")
-    
-    def _get_split_and_local_idx(self, global_idx: int) -> Tuple[int, int]:
-        """Convert global index to (split_idx, local_idx)"""
-        for split_idx in range(len(self.cumulative_sizes) - 1):
-            if global_idx < self.cumulative_sizes[split_idx + 1]:
-                local_idx = global_idx - self.cumulative_sizes[split_idx]
-                return split_idx, local_idx
-        raise IndexError(f"Index {global_idx} out of range")
+        
+        # OPTIMIZATION: Pre-load all data into memory for fast access
+        if self.preload:
+            print(f"Pre-loading all {self.total_size:,} samples into memory...")
+            self.data = []
+            
+            for split_idx, split_file in enumerate(tqdm(split_files, desc="Loading data")):
+                with h5py.File(split_file, 'r') as h5:
+                    num_samples = min(self.split_sizes[split_idx], 
+                                     self.total_size - len(self.data))
+                    
+                    for local_idx in range(num_samples):
+                        # Get activation: [layers, seq_len, hidden_dim]
+                        hidden = h5["hidden_states"][local_idx]
+                        
+                        # Extract layer: [seq_len, hidden_dim]
+                        layer_hidden = hidden[self.layer_idx]
+                        
+                        # Pool: [hidden_dim]
+                        pooled = self._pool_sequence(layer_hidden)
+                        
+                        self.data.append(pooled.astype(np.float32))
+                        
+                        if len(self.data) >= self.total_size:
+                            break
+                
+                if len(self.data) >= self.total_size:
+                    break
+            
+            # Convert to numpy array for efficient indexing
+            self.data = np.array(self.data)
+            print(f"✓ Pre-loaded {len(self.data):,} samples ({self.data.nbytes / 1e9:.2f} GB)")
+        else:
+            self.data = None
     
     def _pool_sequence(self, hidden_states: np.ndarray) -> np.ndarray:
         """Pool sequence dimension [seq_len, hidden_dim] -> [hidden_dim]"""
@@ -174,23 +209,38 @@ class ActivationDataset(Dataset):
     
     def __getitem__(self, idx):
         """Return pooled activation vector"""
-        split_idx, local_idx = self._get_split_and_local_idx(idx)
-        
-        # Get activation: [layers, seq_len, hidden_dim]
-        hidden = self.h5_files[split_idx]["hidden_states"][local_idx]
-        
-        # Extract layer: [seq_len, hidden_dim]
-        layer_hidden = hidden[self.layer_idx]
-        
-        # Pool: [hidden_dim]
-        pooled = self._pool_sequence(layer_hidden)
-        
-        return torch.FloatTensor(pooled)
+        if self.preload and self.data is not None:
+            # Fast path: return pre-loaded data
+            return torch.FloatTensor(self.data[idx])
+        else:
+            # Fallback: load on-demand (slower)
+            split_idx, local_idx = self._get_split_and_local_idx(idx)
+            
+            with h5py.File(self.split_files[split_idx], 'r') as h5:
+                # Get activation: [layers, seq_len, hidden_dim]
+                hidden = h5["hidden_states"][local_idx]
+                
+                # Extract layer: [seq_len, hidden_dim]
+                layer_hidden = hidden[self.layer_idx]
+                
+                # Pool: [hidden_dim]
+                pooled = self._pool_sequence(layer_hidden)
+                
+                return torch.FloatTensor(pooled)
+    
+    def _get_split_and_local_idx(self, global_idx: int) -> Tuple[int, int]:
+        """Convert global index to (split_idx, local_idx)"""
+        for split_idx in range(len(self.cumulative_sizes) - 1):
+            if global_idx < self.cumulative_sizes[split_idx + 1]:
+                local_idx = global_idx - self.cumulative_sizes[split_idx]
+                return split_idx, local_idx
+        raise IndexError(f"Index {global_idx} out of range")
     
     def close(self):
-        """Close all H5 files"""
-        for h5 in self.h5_files:
-            h5.close()
+        """Clean up resources"""
+        if self.preload:
+            del self.data
+            self.data = None
 
 # ============================================================================
 # TRAINING LOOP
@@ -217,7 +267,7 @@ def train_sae(model, train_loader, val_loader, device, epochs, lr, save_dir):
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
         for batch_idx, x in enumerate(pbar):
-            x = x.to(device)
+            x = x.to(device, non_blocking=True)
             
             # Forward
             x_recon, z = model(x)
@@ -248,7 +298,7 @@ def train_sae(model, train_loader, val_loader, device, epochs, lr, save_dir):
         
         with torch.no_grad():
             for x in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]"):
-                x = x.to(device)
+                x = x.to(device, non_blocking=True)
                 x_recon, z = model(x)
                 losses = model.compute_loss(x, x_recon, z)
                 
@@ -359,6 +409,8 @@ def main():
     parser.add_argument('--hidden_dim', type=int, default=16384, help='SAE hidden dimension')
     parser.add_argument('--l1_coef', type=float, default=1e-4, help='L1 regularization coefficient')
     parser.add_argument('--train_on_base', action='store_true', help='Train on base model only')
+    parser.add_argument('--max_samples', type=int, default=None, help='Limit number of samples for testing')
+    parser.add_argument('--no_preload', action='store_true', help='Disable pre-loading (faster for large datasets)')
     
     args = parser.parse_args()
     
@@ -382,8 +434,9 @@ def main():
         print(f"Will encode both base and aligned after training")
         print(f"{'='*80}\n")
     
-    # Load training data
-    train_dataset = ActivationDataset(args.data_dir, train_model, layer_idx=-1)
+    # Load training data (disable pre-loading if requested)
+    preload = not args.no_preload
+    train_dataset = ActivationDataset(args.data_dir, train_model, layer_idx=-1, max_samples=args.max_samples, preload=preload)
     
     # Split into train/val (80/20)
     train_size = int(0.8 * len(train_dataset))
@@ -392,8 +445,10 @@ def main():
         train_dataset, [train_size, val_size]
     )
     
-    train_loader = DataLoader(train_subset, batch_size=args.batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_subset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+    # Use fewer workers and persistent workers to avoid H5 file opening overhead
+    # H5 files don't work well with multiple workers accessing the same file
+    train_loader = DataLoader(train_subset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=True)
+    val_loader = DataLoader(val_subset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=True)
     
     print(f"Train samples: {len(train_subset):,}")
     print(f"Val samples: {len(val_subset):,}")

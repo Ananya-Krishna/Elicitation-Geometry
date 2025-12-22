@@ -3,12 +3,13 @@
 #SBATCH --output=data/logs/parallel_falcon_base_%j.out
 #SBATCH --error=data/logs/parallel_falcon_base_%j.err
 #SBATCH --time=04:00:00
-#SBATCH --partition=gpu_h200
-#SBATCH --gpus=h200:1
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
+#SBATCH --array=0-5
 
 # Create logs directory
 mkdir -p logs
@@ -33,6 +34,6 @@ echo "Node: $SLURM_NODELIST"
 echo "GPU: H200 (NVIDIA H200)"
 echo "Time limit: 4 hours"
 
-~/.conda/envs/elicitation/bin/python data_curation_h200_parallel_data.py falcon_base 2 6
+~/.conda/envs/elicitation/bin/python data_curation_numpy_parallel_data.py falcon_base ${SLURM_ARRAY_TASK_ID} 6
 
 echo "PARALLEL DATA-SPLIT for falcon_base completed!"

@@ -17,6 +17,10 @@ import psutil
 import gc
 import sys
 
+# Get script directory for path resolution
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+
 # ============================================================================
 # PARALLEL DATA-SPLIT CONFIGURATION
 # ============================================================================
@@ -156,7 +160,40 @@ class ParallelDataCollector:
         self.prompt_gen = RealDataPromptGenerator(cache_dir="./dataset_cache")
     
     def generate_prompts_split(self) -> list:
-        """Generate prompts and split them across jobs"""
+        """Load prompts from existing split files or generate if not found"""
+        print(f"Loading prompts for {self.config['model_key']} (split {self.config['data_split']}/{self.config['total_splits']})...")
+        
+        # First, try to load from existing prompts_split files in project root
+        # Try multiple possible locations (in order of preference)
+        possible_roots = [
+            PROJECT_ROOT,  # Project root (parent of data/ directory)
+            Path.cwd().resolve(),  # Current working directory
+            Path(self.output_dir).resolve().parent,  # Parent of output_dir
+        ]
+        
+        existing_prompts_file = None
+        for project_root in possible_roots:
+            candidate = project_root / f"prompts_split_{self.config['data_split']}.json"
+            if candidate.exists():
+                existing_prompts_file = candidate
+                break
+        
+        print(f"Looking for prompts file: {existing_prompts_file}")
+        
+        if existing_prompts_file and existing_prompts_file.exists():
+            print(f"✓ Found existing prompts file: {existing_prompts_file}")
+            with open(existing_prompts_file, 'r') as f:
+                split_prompts = json.load(f)
+            print(f"✓ Loaded {len(split_prompts)} prompts from existing file (RealToxicityPrompts)")
+            
+            # Copy to output directory for reference
+            with open(self.output_dir / f"prompts_split_{self.config['data_split']}.json", "w") as f:
+                json.dump(split_prompts, f, indent=2)
+            
+            return split_prompts
+        
+        # Fallback: Generate prompts if file doesn't exist
+        print(f"⚠️  No existing prompts file found, generating new prompts...")
         print(f"Generating prompts for {self.config['model_key']} (split {self.config['data_split']}/{self.config['total_splits']})...")
         
         n_per_domain = self.config["samples_per_domain"]
